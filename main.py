@@ -1,38 +1,45 @@
 import torch
+from flask import Flask, request, jsonify
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-import argparse
 
-def generate_prompt(question, prompt_file="prompt.md", metadata_file="metadata.sql"):
-    with open(prompt_file, "r") as f:
-        prompt = f.read()
+app = Flask(__name__)
 
-    with open(metadata_file, "r") as f:
-        table_metadata_string = f.read()
+# Specify the paths to your default prompt and metadata files
+DEFAULT_PROMPT_PATH = "prompt.md"
+DEFAULT_METADATA_PATH = "metadata.sql"
 
-    prompt = prompt.format(
-        user_question=question, table_metadata_string=table_metadata_string
-    )
-    return prompt
+def read_file(file_path):
+    with open(file_path, "r") as file:
+        return file.read()
+
+def generate_prompt(question, prompt, metadata):
+    formatted_prompt = prompt.format(user_question=question, table_metadata_string=metadata)
+    return formatted_prompt
 
 def get_tokenizer_model(model_name):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         trust_remote_code=True,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,  # Use float16 if GPU is available
-        device_map="auto" if torch.cuda.is_available() else None,  # Automatically map to GPU if available
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto" if torch.cuda.is_available() else None,
         use_cache=True,
     )
-    
-    # Move model to GPU if available
+
     if torch.cuda.is_available():
         model = model.to('cuda')
 
     return tokenizer, model
 
-def run_inference(question, prompt_file="prompt.md", metadata_file="metadata.sql"):
+def run_inference(question, prompt=None, metadata=None):
+    # Use default files if prompt or metadata are not provided
+    if prompt is None:
+        prompt = read_file(DEFAULT_PROMPT_PATH)
+    if metadata is None:
+        metadata = read_file(DEFAULT_METADATA_PATH)
+
     tokenizer, model = get_tokenizer_model("defog/sqlcoder-7b-2")
-    prompt = generate_prompt(question, prompt_file, metadata_file)
+    formatted_prompt = generate_prompt(question, prompt, metadata)
 
     eos_token_id = tokenizer.eos_token_id
     pipe = pipeline(
@@ -46,7 +53,7 @@ def run_inference(question, prompt_file="prompt.md", metadata_file="metadata.sql
     )
     generated_query = (
         pipe(
-            prompt,
+            formatted_prompt,
             num_return_sequences=1,
             eos_token_id=eos_token_id,
             pad_token_id=eos_token_id,
@@ -58,11 +65,21 @@ def run_inference(question, prompt_file="prompt.md", metadata_file="metadata.sql
     )
     return generated_query
 
-if __name__ == "__main__":
-    _default_question = "Do we get more sales from customers in New York compared to customers in San Francisco? Give me the total sales for each city, and the difference between the two."
-    parser = argparse.ArgumentParser(description="Run inference on a question")
-    parser.add_argument("-q", "--question", type=str, default=_default_question, help="Question to run inference on")
-    args = parser.parse_args()
-    question = args.question
-    print("Loading a model and generating a SQL query for answering your question...")
-    print(run_inference(question))
+@app.route('/generate', methods=['POST'])
+def generate():
+    data = request.get_json()
+    question = data.get('question')
+    metadata = data.get('metadata', None)  # Default to None if not provided
+    prompt = data.get('prompt', None)  # Default to None if not provided
+
+    if not question:
+        return jsonify({'error': 'Question is required'}), 400
+
+    try:
+        response = run_inference(question, prompt, metadata)
+        return jsonify({'response': response}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=6000, debug=True)
