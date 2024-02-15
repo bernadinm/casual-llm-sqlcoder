@@ -3,3 +3,4 @@ flask==2.3.3
 torch==2.0.1
 sacremoses==0.0.53
 sentencepiece==0.1.99
+accelerate==2.1.5
