@@ -4,9 +4,11 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 app = Flask(__name__)
 
-# Specify the paths to your default prompt and metadata files
+# Default file paths
 DEFAULT_PROMPT_PATH = "prompt.md"
 DEFAULT_METADATA_PATH = "metadata.sql"
+# Default question
+DEFAULT_QUESTION = "What is the total sales volume for each product category?"
 
 def read_file(file_path):
     with open(file_path, "r") as file:
@@ -31,7 +33,7 @@ def get_tokenizer_model(model_name):
 
     return tokenizer, model
 
-def run_inference(question, prompt=None, metadata=None):
+def run_inference(question=DEFAULT_QUESTION, prompt=None, metadata=None):
     # Use default files if prompt or metadata are not provided
     if prompt is None:
         prompt = read_file(DEFAULT_PROMPT_PATH)
@@ -67,13 +69,10 @@ def run_inference(question, prompt=None, metadata=None):
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    data = request.get_json()
-    question = data.get('question')
+    data = request.get_json(force=True)  # 'force=True' to handle 'NoneType' data
+    question = data.get('question', DEFAULT_QUESTION)  # Use the default question if not provided
     metadata = data.get('metadata', None)  # Default to None if not provided
     prompt = data.get('prompt', None)  # Default to None if not provided
-
-    if not question:
-        return jsonify({'error': 'Question is required'}), 400
 
     try:
         response = run_inference(question, prompt, metadata)
