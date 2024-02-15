@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqlcoder-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sqlcoder
+  template:
+    metadata:
+      labels:
+        app: sqlcoder
+    spec:
+      containers:
+      - name: sqlcoder-container
+        image: us-west1-docker.pkg.dev/pulze-infra-dev/pulzeai-user-images/sqlcoder-7b-2
+        ports:
+        - containerPort: 6000
+        resources:
+          limits:
+            nvidia.com/gpu: 1  # Requesting 1 GPU
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-tesla-k80  # Specify your GPU type here
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqlcoder-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: sqlcoder
+  ports:
+  - protocol: TCP
+    port: 80  # The service port
+    targetPort: 6000  # The container port
